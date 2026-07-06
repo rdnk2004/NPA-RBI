@@ -5,6 +5,7 @@
 # Outputs go to:       outputs/
 # ============================================================
 
+import sys
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,6 +14,11 @@ import matplotlib.patches as mpatches
 import seaborn as sns
 import warnings
 warnings.filterwarnings('ignore')
+
+# Force stdout/stderr to use UTF-8 encoding on Windows to prevent UnicodeEncodeError
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 
 DATA    = "../datasets/"
 OUTPUTS = "../outputs/"
