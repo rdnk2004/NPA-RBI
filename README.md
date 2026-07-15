@@ -31,6 +31,8 @@ Using public banking sector panel data and macroeconomic variables, this system 
 
 ## 📈 Core Findings
 
+*The highlights below are a snapshot of the results. For full methodology, statistical detail, limitations, and policy recommendations, see the [complete policy brief](policy_note/npa_ews_policy_brief.md).*
+
 ### 1. Econometric Drivers (Fixed Effects Panel Model)
 * **Return on Assets (ROA)** is the single strongest leading indicator of future asset quality. A **1 pp drop** in ROA is associated with a **$2.33$ pp rise** in next-year GNPA ($p < 0.01$).
 * **Provision Coverage Ratio (PCR)** is statistically significant ($p < 0.05$), showing that weak provisioning buffers correlate with subsequent spikes in NPA defaults.
@@ -97,7 +99,11 @@ The XGBoost model's **test-set R² is -0.495** — worse than simply predicting 
 
 ---
 
-## 🏛️ Policy Recommendations
+## 🏛️ Policy Implications
+
+This prototype doesn't stop at a model — its findings are written up as a formal policy brief addressed to RBI's Department of Supervision, covering methodology, empirical findings, limitations, and concrete recommendations (sub-sectoral EWS triggers, quarterly bank-level dashboard operationalization).
+
+📄 **[Read the full policy brief →](policy_note/npa_ews_policy_brief.md)**
 
 1. **Sub-Sectoral EWS Triggers:** Implement sector-specific offsite surveillance thresholds (e.g. Infrastructure or MSME) triggering reviews when sub-sector NPA exceeds **$12\%$**, preventing lagging aggregate indicators from masking risk.
 2. **SupTech Dashboard Operationalization:** Re-train this XGBoost + SHAP model framework on quarterly bank-level supervisory returns (DSB database) to provide offsite examiners with auditable, individual risk contribution metrics.
