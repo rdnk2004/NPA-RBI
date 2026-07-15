@@ -1,5 +1,7 @@
 # RBI NPA Early Warning System (EWS) — SupTech Prototype
 
+![CI](https://github.com/rdnk2004/NPA-RBI/actions/workflows/ci.yml/badge.svg)
+
 This repository contains a prototype **SupTech Early Warning System (EWS)** designed to replicate and enhance the offsite surveillance methodologies used by the Reserve Bank of India (RBI) to monitor asset quality stress. 
 
 Using public banking sector panel data and macroeconomic variables, this system predicts Gross Non-Performing Asset (GNPA) ratios at a 1-year forward horizon. It integrates **econometric panel models** with **regularized machine learning (XGBoost)** and **explainable AI (SHAP)**, validated through a top-down macroeconomic stress test.
@@ -8,18 +10,22 @@ Using public banking sector panel data and macroeconomic variables, this system 
 
 ## 📂 Repository Structure
 
+* **`src/npa_ews/`**: Installable Python package — the tested, reusable core logic.
+  * `config.py`: Single source of truth for feature lists, paths, bank-group colors, and stress scenario definitions (previously duplicated across every notebook).
+  * `data.py`: Panel loading with explicit schema validation (column checks, plausible-range checks, duplicate detection) — fails loudly on bad data instead of silently proceeding.
+  * `models/panel_fe.py`: Fixed-effects panel regression as a reusable class.
+  * `models/xgb_model.py`: XGBoost + SHAP wrapper with a clean fit/predict/explain interface.
+  * `stress.py`: Macro stress scenario application and PCA-threshold breach detection.
+  * `cli.py`: `npa-ews run` command-line entrypoint tying the pipeline together with structured logging.
+* **`tests/`**: `pytest` suite (21 tests) covering schema validation, the fixed-effects transform, stress test arithmetic, and — most importantly — **leakage checks**: verifying the train/test temporal split doesn't overlap, the target isn't a disguised feature, and the target really is forward-shifted rather than a same-year copy.
+* **`.github/workflows/ci.yml`**: Runs lint (`ruff`), the full test suite with coverage, and an end-to-end pipeline smoke test on every push, across Python 3.10–3.12.
 * **`datasets/`**: Master panel datasets merging bank-group level metrics with macroeconomic variables.
-  * [banking_panel.csv](file:///d:/NPA/datasets/banking_panel.csv): Panel data (year × bank_group).
-  * [macro_annual.csv](file:///d:/NPA/datasets/macro_annual.csv): Annual macroeconomic indicators (GDP, Repo Rate, CPI).
-* **`notebooks/`**: Analytical pipeline executed in chronological order:
-  * [01_data_prep.ipynb](file:///d:/NPA/notebooks/01_data_prep.ipynb): Data ingestion and forward-lag target engineering.
-  * [02_eda.py](file:///d:/NPA/notebooks/02_eda.py): Visualizing the India NPA cycle (2004–2025), credit growth vs. NPA lag, and PCR trends.
-  * [03_panel_regression.py](file:///d:/NPA/notebooks/03_panel_regression.py): Fixed Effects (FE) panel regression (econometric baseline).
-  * [04_xgboost_shap.py](file:///d:/NPA/notebooks/04_xgboost_shap.py): Shallow XGBoost Regressor with global and individual SHAP explanations.
-  * [05_stress_test.py](file:///d:/NPA/notebooks/05_stress_test.py): Macroeconomic stress testing and PCA threshold breach validation.
+  * `banking_panel.csv`: Panel data (year × bank_group).
+  * `macro_annual.csv`: Annual macroeconomic indicators (GDP, Repo Rate, CPI).
+* **`notebooks/`**: Original exploratory/chart-generation scripts (`01`–`05`), kept for the full EDA and figure generation. The modeling logic they contain has been extracted into `src/npa_ews/` above; these now serve mainly as the visualization/reporting layer.
 * **`outputs/`**: Generated charts (forest plots, SHAP beeswarms, force plots, actual-vs-predicted scatter plots, stress heatmap, and traffic-light supervisory tables).
-* **`policy_note/`**: 
-  * [npa_ews_policy_brief.md](file:///d:/NPA/policy_note/npa_ews_policy_brief.md): A formal policy memorandum addressed to the Department of Supervision detailing findings, recommendations, and limitations.
+* **`policy_note/`**:
+  * `npa_ews_policy_brief.md`: A formal policy memorandum addressed to the Department of Supervision detailing findings, recommendations, and limitations.
 
 ---
 
@@ -57,14 +63,27 @@ Applying macroeconomic shocks calibrated to historical Indian banking crises yie
 
 ## 🛠️ How to Run
 
-### Prerequisite Packages
-Install the required econometric, machine learning, and visualization libraries:
+### Install
+Install the package in editable mode (pulls in all modeling/viz dependencies from `pyproject.toml`):
 ```bash
-pip install pandas numpy matplotlib seaborn statsmodels scikit-learn xgboost shap linearmodels openpyxl requests scipy
+pip install -e ".[dev]"
 ```
 
-### Execution Order
-Run the python files in the following order from the `notebooks/` directory to generate the datasets and outputs:
+### Run the pipeline
+```bash
+npa-ews run                # full pipeline: FE regression + XGBoost + stress test
+npa-ews run --stage fe      # just the fixed-effects regression
+npa-ews run --stage xgb     # just XGBoost + SHAP
+npa-ews run --stage stress  # just the macro stress test
+```
+
+### Run the tests
+```bash
+pytest tests/ -v --cov=npa_ews --cov-report=term-missing
+```
+
+### Regenerate charts and figures
+The original chart-generation scripts still work, now importing shared logic from `src/npa_ews/` instead of redefining it:
 ```bash
 cd notebooks
 python 02_eda.py
@@ -72,6 +91,9 @@ python 03_panel_regression.py
 python 04_xgboost_shap.py
 python 05_stress_test.py
 ```
+
+### A note on model performance
+The XGBoost model's **test-set R² is -0.495** — worse than simply predicting the mean. This is expected, not a bug: with ~32 usable observations, XGBoost's value here is as a **pattern-identifier** (via SHAP) that cross-checks the fixed-effects regression's drivers, not as a standalone forecaster. The fixed-effects model (R² = 0.650, n = 32) is the model actually used for the stress test in `stress.py`. See `tests/test_no_leakage.py` for the checks that verify this isn't a leakage artifact in either direction.
 
 ---
 
