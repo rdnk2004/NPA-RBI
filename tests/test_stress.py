@@ -53,3 +53,44 @@ def test_find_pca_breaches_detects_known_breach():
 def test_find_pca_breaches_empty_when_none_breach():
     stress_df = pd.DataFrame({"Baseline": {"PSB": 3.47, "Foreign": 1.19}})
     assert find_pca_breaches(stress_df, threshold=6.0) == {}
+
+
+def test_bootstrap_baseline_scenario_has_zero_spread(model_ready_panel):
+    """The baseline scenario applies zero shocks, so gnpa_impact = 0
+    regardless of which bootstrap coefficients are drawn -- every
+    bootstrap draw for baseline must be numerically identical."""
+    baseline = (
+        model_ready_panel[model_ready_panel["year"] == model_ready_panel["year"].max()]
+        .set_index("bank_group")
+    )
+    from npa_ews.stress import bootstrap_stress_test
+
+    results = bootstrap_stress_test(model_ready_panel, baseline, n_boot=25)
+    baseline_result = results["Baseline (2024 actuals)"]
+    assert (baseline_result["std"] < 1e-6).all()
+
+
+def test_bootstrap_intervals_contain_point_estimate(model_ready_panel):
+    baseline = (
+        model_ready_panel[model_ready_panel["year"] == model_ready_panel["year"].max()]
+        .set_index("bank_group")
+    )
+    from npa_ews.stress import bootstrap_stress_test
+
+    results = bootstrap_stress_test(model_ready_panel, baseline, n_boot=25)
+    for scenario_df in results.values():
+        assert (scenario_df["lower"] <= scenario_df["point"]).all()
+        assert (scenario_df["point"] <= scenario_df["upper"]).all()
+
+
+def test_bootstrap_breach_prob_between_zero_and_one(model_ready_panel):
+    baseline = (
+        model_ready_panel[model_ready_panel["year"] == model_ready_panel["year"].max()]
+        .set_index("bank_group")
+    )
+    from npa_ews.stress import bootstrap_stress_test
+
+    results = bootstrap_stress_test(model_ready_panel, baseline, n_boot=25)
+    for scenario_df in results.values():
+        assert (scenario_df["breach_prob"] >= 0).all()
+        assert (scenario_df["breach_prob"] <= 1).all()

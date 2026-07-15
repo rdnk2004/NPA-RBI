@@ -38,3 +38,33 @@ def test_demeaning_removes_group_level_variation(model_ready_panel):
 
     group_means_after = demeaned.groupby(fe_df["bank_group"]).mean()
     assert np.allclose(group_means_after, overall_mean, atol=1e-8)
+
+
+def test_predict_requires_fit_first(model_ready_panel):
+    fe = FixedEffectsRegressor()
+    with pytest.raises(RuntimeError, match="Call .fit"):
+        fe.predict(model_ready_panel)
+
+
+def test_predict_raises_for_unseen_bank_group(model_ready_panel):
+    fe = FixedEffectsRegressor()
+    train = model_ready_panel[model_ready_panel["bank_group"] != "SFB"]
+    fe.fit(train)
+    unseen = model_ready_panel[model_ready_panel["bank_group"] == "SFB"]
+    with pytest.raises(ValueError, match="SFB"):
+        fe.predict(unseen)
+
+
+def test_predict_in_sample_beats_predicting_the_mean(model_ready_panel):
+    """A weak but meaningful sanity check: in-sample predictions should
+    fit noticeably better than just guessing the target's mean for
+    every row. This would fail if group_intercepts were computed
+    incorrectly (e.g. swapped sign, wrong grouping)."""
+    fe = FixedEffectsRegressor()
+    fe.fit(model_ready_panel)
+    preds = fe.predict(model_ready_panel)
+    actual = model_ready_panel[fe.target].to_numpy()
+
+    model_sse = np.sum((actual - preds) ** 2)
+    baseline_sse = np.sum((actual - actual.mean()) ** 2)
+    assert model_sse < baseline_sse
