@@ -26,6 +26,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 from npa_ews import config
 from npa_ews.models.panel_fe import FixedEffectsRegressor
+from npa_ews.models.xgb_model import GnpaXGBModel
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,127 @@ class WalkForwardResult:
                 for f in self.folds
             ]
         )
+
+
+def _naive_predict(train: pd.DataFrame, test: pd.DataFrame, target: str) -> np.ndarray:
+    """Persistence baseline: predict next year's GNPA = this year's
+    GNPA (i.e. gnpa_ratio), per bank_group. The bar any model must
+    clear to be worth using at all."""
+    return test["gnpa_ratio"].to_numpy()
+
+
+def _mean_predict(train: pd.DataFrame, test: pd.DataFrame, target: str) -> np.ndarray:
+    """Historical-mean baseline: predict each bank_group's own
+    training-period average target, ignoring all features."""
+    group_means = train.groupby("bank_group")[target].mean()
+    return test["bank_group"].map(group_means).to_numpy()
+
+
+def _pooled_ols_predict(
+    train: pd.DataFrame, test: pd.DataFrame, features: list[str], target: str
+) -> np.ndarray:
+    """Plain pooled OLS: same features as the FE model, but with no
+    bank_group fixed effects at all -- i.e. what you'd get if you
+    ignored the panel structure entirely."""
+    import statsmodels.api as sm
+
+    X_train = sm.add_constant(train[features])
+    model = sm.OLS(train[target], X_train).fit()
+    X_test = sm.add_constant(test[features], has_constant="add")
+    return model.predict(X_test[X_train.columns]).to_numpy()
+
+
+def compare_baselines(
+    ml_df: pd.DataFrame,
+    features: list[str] | None = None,
+    target: str | None = None,
+    min_train_years: int = 5,
+) -> pd.DataFrame:
+    """Run naive persistence, historical mean, pooled OLS, and the
+    fixed-effects model through the *same* walk-forward folds, so
+    "is the fixed-effects model actually worth it" has a real,
+    apples-to-apples answer instead of a single model's number sitting
+    in isolation.
+
+    A model that doesn't beat the naive/mean baselines by a meaningful
+    margin isn't earning its complexity, regardless of how
+    sophisticated it is -- this is the check that should happen
+    *before* reaching for a fancier algorithm like XGBoost, not after.
+    """
+    features = features or config.FEATURES
+    target = target or config.TARGET
+    all_groups = set(ml_df["bank_group"].unique())
+    years = sorted(ml_df["year"].unique())
+
+    predictors = {
+        "Naive (persistence)": lambda tr, te: _naive_predict(tr, te, target),
+        "Historical mean": lambda tr, te: _mean_predict(tr, te, target),
+        "Pooled OLS (no fixed effects)": lambda tr, te: _pooled_ols_predict(tr, te, features, target),
+    }
+
+    rows = []
+    for cutoff in years[min_train_years - 1 : -1]:
+        train = ml_df[ml_df["year"] <= cutoff]
+        test = ml_df[ml_df["year"] == cutoff + 1]
+        if not all_groups.issubset(set(train["bank_group"].unique())):
+            continue
+        test = test[test["bank_group"].isin(all_groups)]
+        if test.empty:
+            continue
+        actual = test[target].to_numpy()
+
+        for name in ("Naive (persistence)", "Historical mean", "Pooled OLS (no fixed effects)"):
+            preds = predictors[name](train, test)
+            rows.append(
+                {
+                    "model": name,
+                    "test_year": cutoff + 1,
+                    "mae": mean_absolute_error(actual, preds),
+                    "rmse": float(np.sqrt(mean_squared_error(actual, preds))),
+                }
+            )
+
+        fe = FixedEffectsRegressor(features, target)
+        fe.fit(train)
+        preds = fe.predict(test)
+        rows.append(
+            {
+                "model": "Fixed Effects",
+                "test_year": cutoff + 1,
+                "mae": mean_absolute_error(actual, preds),
+                "rmse": float(np.sqrt(mean_squared_error(actual, preds))),
+            }
+        )
+
+        xgb_model = GnpaXGBModel(features, target).fit(train, test)
+        xgb_preds = xgb_model.predict(test)
+        rows.append(
+            {
+                "model": "XGBoost",
+                "test_year": cutoff + 1,
+                "mae": mean_absolute_error(actual, xgb_preds),
+                "rmse": float(np.sqrt(mean_squared_error(actual, xgb_preds))),
+            }
+        )
+
+    if not rows:
+        raise ValueError("No valid folds produced for baseline comparison.")
+
+    detail = pd.DataFrame(rows)
+    summary = (
+        detail.groupby("model")[["mae", "rmse"]]
+        .agg(["mean", "std"])
+        .round(3)
+    )
+    summary.columns = ["_".join(c) for c in summary.columns]
+    order = [
+        "Naive (persistence)",
+        "Historical mean",
+        "Pooled OLS (no fixed effects)",
+        "Fixed Effects",
+        "XGBoost",
+    ]
+    return summary.reindex(order)
 
 
 def walk_forward_cv(

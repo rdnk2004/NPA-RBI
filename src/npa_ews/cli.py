@@ -19,7 +19,7 @@ import argparse
 import logging
 import sys
 
-from npa_ews import __version__, config, data, stress
+from npa_ews import __version__, config, data, stress, validation
 from npa_ews.models import FixedEffectsRegressor, GnpaXGBModel
 
 logger = logging.getLogger("npa_ews")
@@ -63,18 +63,42 @@ def run_xgb_stage(ml_df) -> GnpaXGBModel:
     return model
 
 
-def run_stress_stage(fe: FixedEffectsRegressor, panel) -> None:
+def run_validation_stage(ml_df) -> None:
+    logger.info("Running walk-forward cross-validation...")
+    result = validation.walk_forward_cv(ml_df)
+    logger.info("Walk-forward CV folds:\n%s", result.summary_table().to_string(index=False))
+    logger.info(
+        "CV summary: MAE=%.3f +/- %.3f, RMSE=%.3f +/- %.3f (n_folds=%d)",
+        result.mean_mae, result.std_mae, result.mean_rmse, result.std_rmse, len(result.folds),
+    )
+
+    logger.info("Comparing against naive/mean/OLS baselines (same folds)...")
+    comparison = validation.compare_baselines(ml_df)
+    logger.info("Baseline comparison (walk-forward MAE/RMSE, mean +/- std):\n%s", comparison.to_string())
+
+
+def run_stress_stage(fe: FixedEffectsRegressor, ml_df, panel, *, n_boot: int = 300) -> None:
     baseline = panel[panel["year"] == 2024].dropna(
         subset=config.FEATURES
     ).set_index("bank_group")
+    reliability = data.group_reliability(ml_df)
+    logger.info("Bank group data reliability:\n%s", reliability.to_string())
+
     stress_df = stress.run_stress_test(fe.result, baseline)
-    logger.info("Stress test results:\n%s", stress_df.round(2).to_string())
+    stress_df_annotated = data.annotate_reliability(stress_df, reliability)
+    logger.info("Stress test point estimates:\n%s", stress_df_annotated.round(2).to_string())
 
     breaches = stress.find_pca_breaches(stress_df)
     if breaches:
         logger.warning("PCA Threshold 1 (%.1f%%) breaches: %s", stress.PCA_THRESHOLD_1, breaches)
     else:
-        logger.info("No PCA Threshold 1 breaches under any scenario.")
+        logger.info("No PCA Threshold 1 breaches under any scenario (point estimate).")
+
+    logger.info("Running bootstrap uncertainty quantification (n_boot=%d)...", n_boot)
+    boot_results = stress.bootstrap_stress_test(ml_df, baseline, n_boot=n_boot)
+    for scenario_name, scenario_df in boot_results.items():
+        annotated = data.annotate_reliability(scenario_df, reliability)
+        logger.info("Bootstrap CI -- %s:\n%s", scenario_name, annotated.to_string())
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -85,10 +109,14 @@ def main(argv: list[str] | None = None) -> int:
     run_p = sub.add_parser("run", help="Run the pipeline")
     run_p.add_argument(
         "--stage",
-        choices=["all", "fe", "xgb", "stress"],
+        choices=["all", "fe", "xgb", "stress", "validate"],
         default="all",
     )
     run_p.add_argument("-v", "--verbose", action="store_true")
+    run_p.add_argument(
+        "--n-boot", type=int, default=300,
+        help="Bootstrap resamples for stress-test CIs (default: 300; use 1000+ for report-quality figures).",
+    )
 
     args = parser.parse_args(argv)
     _setup_logging(getattr(args, "verbose", False))
@@ -102,9 +130,11 @@ def main(argv: list[str] | None = None) -> int:
             fe = run_fe_stage(ml_df)
         if args.stage in ("all", "xgb"):
             run_xgb_stage(ml_df)
+        if args.stage in ("all", "validate"):
+            run_validation_stage(ml_df)
         if args.stage in ("all", "stress"):
             assert fe is not None
-            run_stress_stage(fe, panel)
+            run_stress_stage(fe, ml_df, panel, n_boot=args.n_boot)
 
     return 0
 

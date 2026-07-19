@@ -52,6 +52,16 @@ MAX_ACTUAL_YEAR = 2025
 TRAIN_YEAR_MAX = 2021
 TEST_YEAR_MIN = 2022
 
+# Minimum model-ready observations for a bank_group's estimates to be
+# treated as statistically reliable. Below this, a group's fixed
+# effect and any prediction/CI derived from it should be flagged --
+# e.g. PSB and SFB currently have only 4 usable rows each (2021-2024),
+# vs. 12 for Foreign/Private, because PSB-group and SFB-group data is
+# only available in this dataset from 2018 onward. This is a known,
+# permanent constraint of the source RBI/government data, not a bug
+# to be fixed by better modeling.
+MIN_RELIABLE_OBS = 8
+
 GROUP_COLORS: dict[str, str] = {
     "PSB": "#e74c3c",
     "Private": "#3498db",
