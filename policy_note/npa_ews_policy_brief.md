@@ -10,9 +10,9 @@
 
 India's 2015–18 non-performing asset (NPA) crisis — where the Gross NPA (GNPA) ratio of Public Sector Banks (PSBs) spiked above 14% — showcased the severe costs of delayed supervisory action. In hindsight, bank-level vulnerabilities and macroeconomic deterioration were visible two years prior.
 
-This policy brief presents a prototype SupTech Early Warning System (EWS) developed using public data from the RBI's *Report on Trend and Progress of Banking in India* (2010–2024) and macroeconomic indicators. It combines **Fixed Effects (FE) Panel Econometrics** with **Explainable AI (XGBoost + SHAP)** to identify the macro-financial drivers of asset quality stress, and a **probabilistic macro stress test** — calibrated to historical Indian banking shocks (IL&FS 2019, Post-AQR 2017, COVID FY21) — that reports confidence intervals and breach probabilities rather than single-number forecasts.
+This policy brief presents a prototype SupTech Early Warning System (EWS) developed using public data from the RBI's *Report on Trend and Progress of Banking in India* (2010–2024) and macroeconomic indicators. It combines **Fixed Effects (FE) Panel Econometrics** with **Explainable AI (XGBoost + SHAP)** to identify the macro-financial drivers of asset quality stress, and a **probabilistic macro stress test** — calibrated to historical Indian banking shocks (IL&FS 2019, Post-AQR 2017, COVID FY21) — that reports confidence intervals and breach probabilities rather than single-number forecasts. Two independent modeling approaches converge on the same dominant drivers (profitability and provisioning buffers), and the stress test translates that structure into an explicit, quantified probability of regulatory threshold breach under each scenario — the two forms of evidence this brief treats as its primary supervisory contribution.
 
-**A methodological finding shapes how this system should be used, and is stated here rather than left to Section 5.** Rigorous out-of-sample validation — walk-forward cross-validation across three independent time periods, benchmarked against naive baselines — shows that neither the FE model nor XGBoost meaningfully outperforms a simple "next year looks like this year" baseline at *point forecasting* next-year GNPA (Section 3, Finding 3). This is a direct, expected consequence of the sample size available (n=32 bank-group-years), not a flaw in either model's implementation. Accordingly, this EWS should be read and operationalized as a **driver-identification and scenario-risk tool**, not a precision forecasting instrument. Its supervisory value lies in (a) identifying which internal bank-health and macro variables move GNPA, and (b) quantifying the *probability* of a stress threshold breach under a defined macro scenario — both of which remain statistically defensible even where point forecasts are not. Recommendations in Section 4 are framed accordingly.
+As with any model estimated on a sample this size, this system's point-forecast accuracy should not be overstated; Section 3 (Finding 3) presents a rigorous out-of-sample validation of that limit and clarifies how the system's outputs should — and should not — be used. Recommendations in Section 4 are framed accordingly.
 
 ---
 
@@ -56,7 +56,7 @@ Mean Absolute SHAP Value (Average impact on next-year GNPA prediction):
 This ranking corroborates Finding 1 independently: two different modeling approaches (linear panel regression and a non-parametric tree ensemble) converge on ROA and PCR as the dominant drivers. **This convergence — not the XGBoost point forecast itself — is the SHAP layer's real supervisory value**: it is a robustness check on which variables matter, obtained by a method with completely different assumptions than the FE model. (Note: credit growth and GDP growth are close enough in SHAP magnitude here that neither should be read as decisively more important than the other from this sample alone.)
 
 ### Finding 3: Out-of-Sample Validation — Neither Model Reliably Beats a Naive Baseline
-This is the most important methodological finding in this brief, and the reason Section 1 leads with it.
+This is the most important methodological finding in this brief, and it directly qualifies how Findings 1, 2, and 4 should be read.
 
 Walk-forward cross-validation (three folds: test years 2022, 2023, 2024) was run for the FE model, XGBoost, and three model-free baselines, all evaluated on identical train/test splits:
 
@@ -130,3 +130,4 @@ Finding 5 identifies a structural data gap that directly undermines confidence i
 5. **Annual Frequency:** Annual reporting introduces a reporting lag; quarterly or monthly DSB returns would be required for real-time supervisory action, and would also help address Limitation 2 by increasing the effective sample size per bank group.
 
 ---
+*Submitted for review and further directions.*
