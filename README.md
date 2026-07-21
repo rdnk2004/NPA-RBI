@@ -17,8 +17,10 @@ Using public banking sector panel data and macroeconomic variables, this system 
   * `models/xgb_model.py`: XGBoost + SHAP wrapper with a clean fit/predict/explain interface.
   * `validation.py`: Walk-forward (expanding-window) cross-validation, and a baseline comparison against naive/mean/pooled-OLS predictors — the honest answer to "is this model actually worth it?"
   * `stress.py`: Macro stress scenario application, PCA-threshold breach detection, and block-bootstrap confidence intervals + breach probabilities.
-  * `cli.py`: `npa-ews run` command-line entrypoint tying the pipeline together with structured logging.
-* **`tests/`**: `pytest` suite (41 tests) covering schema validation, the fixed-effects transform, stress test arithmetic, walk-forward CV integrity, baseline-comparison correctness, data-reliability flagging, and — most importantly — **leakage checks**: verifying the train/test temporal split doesn't overlap, the target isn't a disguised feature, and the target really is forward-shifted rather than a same-year copy.
+  * `cli.py`: `npa-ews run` / `npa-ews serve` command-line entrypoint.
+  * `api.py`: FastAPI serving layer exposing drivers, validation, reliability, and stress-test results as a typed REST API with auto-generated docs.
+  * `schemas.py`: Pydantic request/response models for the API — explicit, typed contracts rather than ad-hoc dicts.
+* **`tests/`**: `pytest` suite (54 tests) covering schema validation, the fixed-effects transform, stress test arithmetic, walk-forward CV integrity, baseline-comparison correctness, data-reliability flagging, the FastAPI routes, and — most importantly — **leakage checks**: verifying the train/test temporal split doesn't overlap, the target isn't a disguised feature, and the target really is forward-shifted rather than a same-year copy.
 * **`.github/workflows/ci.yml`**: Runs lint (`ruff`), the full test suite with coverage, and an end-to-end pipeline smoke test on every push, across Python 3.10–3.12.
 * **`datasets/`**: Master panel datasets merging bank-group level metrics with macroeconomic variables.
   * `banking_panel.csv`: Panel data (year × bank_group).
@@ -98,6 +100,13 @@ npa-ews run --stage xgb       # just XGBoost + SHAP
 npa-ews run --stage stress    # just the macro stress test
 npa-ews run --stage validate  # walk-forward CV + naive/mean/OLS/XGBoost comparison
 ```
+
+### Run the API server
+```bash
+npa-ews serve                    # http://127.0.0.1:8000, docs at /docs
+npa-ews serve --port 8080 --reload
+```
+Endpoints: `GET /drivers` (FE + SHAP driver comparison), `GET /validation` (walk-forward CV + baseline comparison), `GET /reliability` (per-group data confidence), `GET /scenarios` (predefined stress scenarios), `GET /stress` (bootstrap CIs + breach probabilities for all scenarios), `POST /stress/custom` (bootstrap-CI stress test for a user-defined macro shock). Every stress result carries its `data_confidence` flag — the API can't be used in a way that drops PSB/SFB's low-confidence caveat.
 
 ### Run the tests
 ```bash

@@ -118,8 +118,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Bootstrap resamples for stress-test CIs (default: 300; use 1000+ for report-quality figures).",
     )
 
+    serve_p = sub.add_parser("serve", help="Run the FastAPI server")
+    serve_p.add_argument("--host", default="127.0.0.1")
+    serve_p.add_argument("--port", type=int, default=8000)
+    serve_p.add_argument("--reload", action="store_true")
+
     args = parser.parse_args(argv)
     _setup_logging(getattr(args, "verbose", False))
+
+    if args.command == "serve":
+        import uvicorn
+
+        logger.info("Starting API server at http://%s:%d (docs at /docs)", args.host, args.port)
+        uvicorn.run("npa_ews.api:app", host=args.host, port=args.port, reload=args.reload)
+        return 0
 
     if args.command == "run":
         panel = data.load_banking_panel()

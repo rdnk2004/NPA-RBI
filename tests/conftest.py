@@ -1,8 +1,20 @@
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from npa_ews import config
+
+# Fires at import time (starlette.testclient importing httpx), before
+# pytest's [tool.pytest.ini_options] filterwarnings takes effect for
+# collection-time warnings -- suppressed here instead so it doesn't
+# show up in every test run's warning summary.
+warnings.filterwarnings(
+    "ignore",
+    message="Using `httpx` with `starlette.testclient` is deprecated.*",
+    category=DeprecationWarning,
+)
 
 
 @pytest.fixture

@@ -63,3 +63,19 @@ def test_model_does_not_memorize_train_perfectly(model_ready_panel):
     model = GnpaXGBModel().fit(train, test)
     metrics = model.evaluate(train, test)
     assert metrics.train_r2 < 0.999
+
+
+def test_fit_and_evaluate_do_not_require_shap_explainer(model_ready_panel, monkeypatch):
+    """Model training/evaluation should work even if SHAP explainer init
+    fails on a specific runtime/version combination."""
+    from npa_ews.models import xgb_model as xgb_module
+
+    def _raise_shap_incompatibility(*_args, **_kwargs):
+        raise ValueError("could not convert string to float: '[2.4E0]'")
+
+    monkeypatch.setattr(xgb_module.shap, "TreeExplainer", _raise_shap_incompatibility)
+
+    train, test = _temporal_split(model_ready_panel)
+    model = GnpaXGBModel().fit(train, test)
+    metrics = model.evaluate(train, test)
+    assert np.isfinite(metrics.train_r2)
