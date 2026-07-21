@@ -68,7 +68,7 @@ class GnpaXGBModel:
         if test_df is not None:
             eval_set = [(test_df[self.features], test_df[self.target])]
         self.model.fit(X_train, y_train, eval_set=eval_set, verbose=False)
-        self._explainer = shap.TreeExplainer(self.model)
+        self._explainer = None
         self._fitted = True
         return self
 
@@ -91,12 +91,12 @@ class GnpaXGBModel:
 
     def shap_values(self, df: pd.DataFrame) -> np.ndarray:
         self._check_fitted()
-        return self._explainer.shap_values(df[self.features])
+        return self._get_explainer().shap_values(df[self.features])
 
     @property
     def base_value(self) -> float:
         self._check_fitted()
-        return float(self._explainer.expected_value)
+        return float(self._get_explainer().expected_value)
 
     def global_importance(self, df: pd.DataFrame) -> pd.Series:
         """Mean absolute SHAP value per feature, sorted ascending."""
@@ -108,3 +108,8 @@ class GnpaXGBModel:
     def _check_fitted(self) -> None:
         if not self._fitted:
             raise RuntimeError("Call .fit(train_df) before using this model.")
+
+    def _get_explainer(self) -> shap.TreeExplainer:
+        if self._explainer is None:
+            self._explainer = shap.TreeExplainer(self.model)
+        return self._explainer
