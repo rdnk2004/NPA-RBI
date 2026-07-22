@@ -12,3 +12,7 @@ htmlcov/
 venv/
 *.ipynb_checkpoints/
 .DS_Store
+
+# secrets -- never commit an API key
+.env
+.streamlit/secrets.toml
