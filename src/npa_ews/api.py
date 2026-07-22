@@ -27,7 +27,7 @@ from dataclasses import dataclass
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 
-from npa_ews import __version__, config, data, stress, validation
+from npa_ews import __version__, config, data, narrative, stress, validation
 from npa_ews.models import FixedEffectsRegressor, GnpaXGBModel
 from npa_ews.schemas import (
     BaselineModelResult,
@@ -35,6 +35,8 @@ from npa_ews.schemas import (
     CustomStressResponse,
     DriverRow,
     DriversResponse,
+    NarrativeRequest,
+    NarrativeResponse,
     ReliabilityRow,
     ScenarioInfo,
     StressResponse,
@@ -120,7 +122,10 @@ def root() -> dict:
         "name": "NPA Early Warning System API",
         "version": __version__,
         "docs": "/docs",
-        "endpoints": ["/health", "/drivers", "/validation", "/reliability", "/scenarios", "/stress", "/stress/custom"],
+        "endpoints": [
+            "/health", "/drivers", "/validation", "/reliability",
+            "/scenarios", "/stress", "/stress/custom", "/narrative",
+        ],
     }
 
 
@@ -277,3 +282,76 @@ def post_custom_stress(req: CustomStressRequest) -> CustomStressResponse:
         for bg, row in annotated.iterrows()
     ]
     return CustomStressResponse(threshold=stress.PCA_THRESHOLD_1, n_boot=req.n_boot, results=rows)
+
+
+def _driver_dicts(s: AppState) -> list[dict]:
+    shap_importance = s.xgb_model.global_importance(s.ml_df)
+    return [
+        {
+            "label": config.FEATURE_LABELS.get(f, f),
+            "fe_coefficient": round(s.fe.result.coefficients[f], 4),
+            "shap_importance": round(float(shap_importance.get(f, 0.0)), 4),
+        }
+        for f in config.FEATURES
+    ]
+
+
+@app.post("/narrative", response_model=NarrativeResponse, tags=["narrative"])
+def post_narrative(req: NarrativeRequest) -> NarrativeResponse:
+    """Run the stress test for a scenario (predefined or custom) and
+    ask an LLM to turn the result into a short plain-English risk
+    narrative -- the same translation the policy note does by hand,
+    automated over the same validated numbers. Returns generated=False
+    with an explanatory message if ANTHROPIC_API_KEY isn't set, rather
+    than failing the whole request.
+    """
+    s = _get_state()
+    if req.bank_group not in s.baseline.index:
+        raise HTTPException(status_code=404, detail=f"Unknown bank_group {req.bank_group!r}")
+
+    if req.scenario_name:
+        scenario = next((sc for sc in config.STRESS_SCENARIOS if sc.name == req.scenario_name), None)
+        if scenario is None:
+            raise HTTPException(status_code=404, detail=f"Unknown scenario {req.scenario_name!r}")
+    else:
+        scenario = config.StressScenario(
+            name="Custom",
+            description="User-defined scenario",
+            gdp_shock=req.gdp_shock,
+            repo_shock=req.repo_shock,
+            credit_shock=req.credit_shock,
+            roa_shock=req.roa_shock,
+        )
+
+    boot_results = stress.bootstrap_stress_test(
+        s.ml_df, s.baseline, scenarios=[scenario], n_boot=req.n_boot
+    )
+    scenario_df = boot_results[scenario.name]
+    annotated = data.annotate_reliability(scenario_df, s.reliability)
+    row = annotated.loc[req.bank_group]
+
+    result = narrative.generate_narrative(
+        bank_group=req.bank_group,
+        scenario_name=scenario.name,
+        point=row["point"],
+        lower=row["lower"],
+        upper=row["upper"],
+        breach_probability=row["breach_prob"],
+        threshold=stress.PCA_THRESHOLD_1,
+        data_confidence=row["data_confidence"],
+        drivers=_driver_dicts(s),
+    )
+
+    based_on = StressRow(
+        bank_group=req.bank_group,
+        scenario=scenario.name,
+        point=row["point"],
+        lower=row["lower"],
+        upper=row["upper"],
+        std=row["std"],
+        breach_probability=row["breach_prob"],
+        data_confidence=row["data_confidence"],
+    )
+    return NarrativeResponse(
+        narrative=result.narrative, generated=result.generated, model=result.model, based_on=based_on
+    )

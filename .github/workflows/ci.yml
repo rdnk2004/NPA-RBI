@@ -22,14 +22,25 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
 
-      - name: Install package + dev dependencies
-        run: pip install -e ".[dev]"
+      - name: Install package + dev + frontend dependencies
+        run: pip install -e ".[dev,frontend]"
 
       - name: Lint with ruff
-        run: ruff check src/ tests/
+        run: ruff check src/ tests/ frontend/
 
       - name: Run test suite
         run: pytest tests/ -v --cov=npa_ews --cov-report=term-missing
 
       - name: Smoke test -- run full pipeline against real data
         run: npa-ews run --stage all
+
+      - name: Smoke test -- frontend script executes without exceptions (API unreachable)
+        run: |
+          cd frontend
+          python -c "
+          from streamlit.testing.v1 import AppTest
+          at = AppTest.from_file('app.py')
+          at.run(timeout=30)
+          assert not at.exception, at.exception
+          print('Frontend smoke test passed (graceful degradation confirmed).')
+          "

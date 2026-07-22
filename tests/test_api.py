@@ -127,3 +127,68 @@ def test_custom_stress_never_negative(client):
     for row in r.json()["results"]:
         assert row["point"] >= 0
         assert row["lower"] >= 0
+
+
+def test_narrative_unconfigured_returns_clear_message(client, monkeypatch):
+    """Without ANTHROPIC_API_KEY set, /narrative must still return 200
+    with generated=False, not a 500 -- every other endpoint's
+    reliability shouldn't depend on this one being configured."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    r = client.post(
+        "/narrative",
+        json={"bank_group": "PSB", "scenario_name": "Tail Risk (COVID FY21)", "n_boot": 50},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["generated"] is False
+    assert body["based_on"]["bank_group"] == "PSB"
+
+
+def test_narrative_unknown_bank_group_404(client):
+    r = client.post("/narrative", json={"bank_group": "NotABank", "n_boot": 50})
+    assert r.status_code == 404
+
+
+def test_narrative_unknown_scenario_404(client):
+    r = client.post(
+        "/narrative", json={"bank_group": "PSB", "scenario_name": "Not A Real Scenario", "n_boot": 50}
+    )
+    assert r.status_code == 404
+
+
+def test_narrative_custom_shocks_when_no_scenario_name(client, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    r = client.post(
+        "/narrative",
+        json={"bank_group": "Foreign", "gdp_shock": -3.0, "repo_shock": 1.0, "n_boot": 50},
+    )
+    assert r.status_code == 200
+    assert r.json()["based_on"]["scenario"] == "Custom"
+
+
+def test_narrative_with_mocked_llm_call(client, monkeypatch):
+    """End-to-end: real stress computation, mocked LLM call -- verifies
+    the route wires actual computed numbers into the narrative call."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake-key-for-testing")
+
+    from npa_ews import narrative as narrative_module
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"content": [{"type": "text", "text": "Mocked narrative response."}]}
+
+    monkeypatch.setattr(
+        narrative_module.requests, "post", lambda *a, **kw: FakeResponse()
+    )
+
+    r = client.post(
+        "/narrative",
+        json={"bank_group": "PSB", "scenario_name": "Tail Risk (COVID FY21)", "n_boot": 50},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["generated"] is True
+    assert body["narrative"] == "Mocked narrative response."

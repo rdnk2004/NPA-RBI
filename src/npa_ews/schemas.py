@@ -95,3 +95,22 @@ class CustomStressResponse(BaseModel):
     threshold: float
     n_boot: int
     results: list[StressRow]
+
+
+class NarrativeRequest(BaseModel):
+    bank_group: str = Field(..., description="One of PSB, Private, Foreign, SFB")
+    scenario_name: str | None = Field(
+        None, description="Name of a predefined scenario (see /scenarios). If omitted, use the shock fields below."
+    )
+    gdp_shock: float = 0.0
+    repo_shock: float = 0.0
+    credit_shock: float = 0.0
+    roa_shock: float = 0.0
+    n_boot: int = Field(200, ge=50, le=2000)
+
+
+class NarrativeResponse(BaseModel):
+    narrative: str
+    generated: bool = Field(..., description="False if ANTHROPIC_API_KEY is not configured")
+    model: str | None = None
+    based_on: StressRow

@@ -18,9 +18,13 @@ Using public banking sector panel data and macroeconomic variables, this system 
   * `validation.py`: Walk-forward (expanding-window) cross-validation, and a baseline comparison against naive/mean/pooled-OLS predictors — the honest answer to "is this model actually worth it?"
   * `stress.py`: Macro stress scenario application, PCA-threshold breach detection, and block-bootstrap confidence intervals + breach probabilities.
   * `cli.py`: `npa-ews run` / `npa-ews serve` command-line entrypoint.
-  * `api.py`: FastAPI serving layer exposing drivers, validation, reliability, and stress-test results as a typed REST API with auto-generated docs.
+  * `narrative.py`: The one LLM integration in this project — turns a stress result + SHAP drivers into a plain-English risk narrative via the Anthropic API. Degrades gracefully (clear "not configured" response, not a crash) if `ANTHROPIC_API_KEY` isn't set.
+  * `api.py`: FastAPI serving layer exposing drivers, validation, reliability, stress-test results, and the narrative endpoint as a typed REST API with auto-generated docs.
   * `schemas.py`: Pydantic request/response models for the API — explicit, typed contracts rather than ad-hoc dicts.
-* **`tests/`**: `pytest` suite (54 tests) covering schema validation, the fixed-effects transform, stress test arithmetic, walk-forward CV integrity, baseline-comparison correctness, data-reliability flagging, the FastAPI routes, and — most importantly — **leakage checks**: verifying the train/test temporal split doesn't overlap, the target isn't a disguised feature, and the target really is forward-shifted rather than a same-year copy.
+* **`frontend/`**: A Streamlit UI that's a real client of the API over HTTP (never imports `npa_ews` internals directly) — driver comparison charts, validation results, predefined and custom stress scenarios with live bootstrap CIs, and the narrative generator.
+  * `client.py`: Thin, independently-tested HTTP client wrapping every API call.
+  * `app.py`: The Streamlit app itself.
+* **`tests/`**: `pytest` suite (70 tests) covering schema validation, the fixed-effects transform, stress test arithmetic, walk-forward CV integrity, baseline-comparison correctness, data-reliability flagging, the FastAPI routes, the narrative module (mocked LLM calls — no API key needed in CI), and the frontend's API client, and — most importantly — **leakage checks**: verifying the train/test temporal split doesn't overlap, the target isn't a disguised feature, and the target really is forward-shifted rather than a same-year copy.
 * **`.github/workflows/ci.yml`**: Runs lint (`ruff`), the full test suite with coverage, and an end-to-end pipeline smoke test on every push, across Python 3.10–3.12.
 * **`datasets/`**: Master panel datasets merging bank-group level metrics with macroeconomic variables.
   * `banking_panel.csv`: Panel data (year × bank_group).
@@ -106,7 +110,14 @@ npa-ews run --stage validate  # walk-forward CV + naive/mean/OLS/XGBoost compari
 npa-ews serve                    # http://127.0.0.1:8000, docs at /docs
 npa-ews serve --port 8080 --reload
 ```
-Endpoints: `GET /drivers` (FE + SHAP driver comparison), `GET /validation` (walk-forward CV + baseline comparison), `GET /reliability` (per-group data confidence), `GET /scenarios` (predefined stress scenarios), `GET /stress` (bootstrap CIs + breach probabilities for all scenarios), `POST /stress/custom` (bootstrap-CI stress test for a user-defined macro shock). Every stress result carries its `data_confidence` flag — the API can't be used in a way that drops PSB/SFB's low-confidence caveat.
+Endpoints: `GET /drivers` (FE + SHAP driver comparison), `GET /validation` (walk-forward CV + baseline comparison), `GET /reliability` (per-group data confidence), `GET /scenarios` (predefined stress scenarios), `GET /stress` (bootstrap CIs + breach probabilities for all scenarios), `POST /stress/custom` (bootstrap-CI stress test for a user-defined macro shock), `POST /narrative` (LLM-generated plain-English risk narrative for any scenario). Every stress result carries its `data_confidence` flag — the API can't be used in a way that drops PSB/SFB's low-confidence caveat.
+
+### Run the frontend
+```bash
+pip install -e ".[frontend]"
+streamlit run frontend/app.py     # http://localhost:8501 -- requires the API server running
+```
+An interactive scenario builder on top of the API above: driver comparison charts, validation results, predefined and custom stress scenarios with live bootstrap confidence intervals, and a "Generate narrative" button. To enable narrative generation, set `ANTHROPIC_API_KEY` before starting the API server — without it, the narrative panel still works, it just returns a clear "not configured" message instead of failing.
 
 ### Run the tests
 ```bash
