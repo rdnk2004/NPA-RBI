@@ -21,9 +21,10 @@ OUTPUTS_DIR = ROOT_DIR / "outputs"
 POLICY_DIR = ROOT_DIR / "policy_note"
 
 BANKING_PANEL_CSV = DATA_DIR / "banking_panel.csv"
+BANK_LEVEL_PANEL_CSV = DATA_DIR / "bank_level_panel.csv"
 MACRO_ANNUAL_CSV = DATA_DIR / "macro_annual.csv"
 
-# ── Modeling ─────────────────────────────────────────────────────────
+# ── Modeling (Macro Bank-Group Level) ─────────────────────────────────
 FEATURES: list[str] = [
     "credit_growth_lag2",
     "roa",
@@ -43,6 +44,30 @@ FEATURE_LABELS: dict[str, str] = {
     "repo_rate": "Repo Rate",
     "cpi_avg": "CPI Inflation",
 }
+
+# ── Modeling (Granular Bank-Level) ────────────────────────────────────
+BANK_LEVEL_FEATURES: list[str] = [
+    "credit_growth_lag2",
+    "roa",
+    "cd_ratio",
+    "pcr",
+    "gdp_growth",
+    "repo_rate",
+    "cpi_avg",
+]
+
+BANK_LEVEL_FEATURE_LABELS: dict[str, str] = {
+    "credit_growth_lag2": "Credit Growth (t-2)",
+    "roa": "Return on Assets",
+    "cd_ratio": "Credit-Deposit Ratio",
+    "pcr": "Provision Coverage Ratio",
+    "gdp_growth": "GDP Growth",
+    "repo_rate": "Repo Rate",
+    "cpi_avg": "CPI Inflation",
+}
+
+TARGET_PCA: str = "pca_breach_next1yr"
+
 
 # Last year with full actuals in the panel; anything beyond this is
 # forecast/derived, not observed.
