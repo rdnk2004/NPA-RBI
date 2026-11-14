@@ -16,3 +16,7 @@ venv/
 # secrets -- never commit an API key
 .env
 .streamlit/secrets.toml
+
+# local caches & scratch
+.cache/
+
