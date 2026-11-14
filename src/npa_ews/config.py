@@ -68,6 +68,12 @@ BANK_LEVEL_FEATURE_LABELS: dict[str, str] = {
 
 TARGET_PCA: str = "pca_breach_next1yr"
 
+# RBI Prompt Corrective Action (PCA) GNPA Thresholds
+PCA_THRESHOLD_1: float = 6.0   # Risk Threshold 1
+PCA_THRESHOLD_2: float = 9.0   # Risk Threshold 2
+PCA_THRESHOLD_3: float = 12.0  # Risk Threshold 3
+
+
 
 # Last year with full actuals in the panel; anything beyond this is
 # forecast/derived, not observed.

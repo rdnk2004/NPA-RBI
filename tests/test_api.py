@@ -195,3 +195,26 @@ def test_narrative_with_mocked_llm_call(client, monkeypatch):
     body = r.json()
     assert body["generated"] is True
     assert body["narrative"] == "Mocked narrative response."
+
+
+def test_bank_level_summary(client):
+    r = client.get("/bank-level/summary")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["n_observations"] > 500
+    assert data["n_banks"] > 50
+    assert data["year_min"] <= 2013
+    assert data["year_max"] >= 2024
+
+
+def test_bank_level_pca_models(client):
+    r = client.get("/bank-level/pca-models")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["threshold"] == 6.0
+    assert data["n_train"] > 0
+    assert data["n_test"] > 0
+    assert len(data["models"]) >= 3
+    model_names = [m["model"] for m in data["models"]]
+    assert any("XGBoost" in name for name in model_names)
+
