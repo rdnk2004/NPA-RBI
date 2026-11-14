@@ -180,3 +180,72 @@ def bootstrap_stress_test(
             )
         results[s.name] = pd.DataFrame(rows).set_index("bank_group")
     return results
+
+
+def run_logit_stress_test(
+    baseline: pd.DataFrame,
+    gdp_shock: float = 0.0,
+    repo_shock: float = 0.0,
+    credit_shock: float = 0.0,
+    roa_shock: float = 0.0,
+    logit_coefs: dict[str, float] | None = None,
+) -> pd.DataFrame:
+    """Non-linear logit-transformed stress test.
+
+    Guarantees projected GNPA ratio remains strictly within (0, 100%) and exhibits
+    realistic non-linear acceleration as baseline stress rises.
+    """
+    coefs = logit_coefs or {
+        "gdp": -0.085,
+        "repo": 0.065,
+        "credit": 0.015,
+        "roa": -0.450,
+    }
+    
+    out = baseline.copy()
+    p = out["gnpa_ratio"].clip(lower=0.1, upper=99.9)
+    # Logit transformation
+    logit_p = np.log(p / (100.0 - p))
+    
+    # Shock impact
+    impact = (
+        coefs["gdp"] * gdp_shock
+        + coefs["repo"] * repo_shock
+        + coefs["credit"] * credit_shock
+        + coefs["roa"] * roa_shock
+    )
+    
+    stressed_logit = logit_p + impact
+    out["stressed_gnpa"] = np.round(100.0 / (1.0 + np.exp(-stressed_logit)), 3)
+    out["gnpa_change_pp"] = np.round(out["stressed_gnpa"] - out["gnpa_ratio"], 3)
+    return out
+
+
+def simulate_bank_capital_depletion(
+    banks_baseline: pd.DataFrame,
+    gnpa_increase_pct: float = 2.5,
+    risk_density: float = 0.70,
+    min_crar_threshold: float = 9.0,
+) -> pd.DataFrame:
+    """Simulate macro-stress capital depletion on individual bank balance sheets.
+
+    Calculates additional provisions required and depleted post-shock CRAR.
+    """
+    df = banks_baseline.copy()
+    # Stressed GNPA
+    df["stressed_gnpa"] = df["gnpa_ratio"] + gnpa_increase_pct
+    df["delta_gnpa_cr"] = (gnpa_increase_pct / 100.0) * df["gross_adv_cr"]
+    
+    # Incremental provisioning needed
+    pcr = df.get("pcr", 70.0).fillna(70.0) / 100.0
+    df["delta_provisions_cr"] = df["delta_gnpa_cr"] * pcr
+    
+    # RWA approximation
+    rwa = df["gross_adv_cr"] * risk_density
+    # Depleted CRAR
+    crar_drop = (df["delta_provisions_cr"] / rwa) * 100.0
+    df["stressed_crar"] = np.round(np.maximum(0.0, df["crar"] - crar_drop), 2)
+    df["crar_depletion_pp"] = np.round(crar_drop, 2)
+    df["crar_breach_9pct"] = (df["stressed_crar"] < min_crar_threshold).astype(int)
+    return df
+

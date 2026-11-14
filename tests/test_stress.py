@@ -94,3 +94,31 @@ def test_bootstrap_breach_prob_between_zero_and_one(model_ready_panel):
     for scenario_df in results.values():
         assert (scenario_df["breach_prob"] >= 0).all()
         assert (scenario_df["breach_prob"] <= 1).all()
+
+
+def test_run_logit_stress_test_bounds():
+    from npa_ews.stress import run_logit_stress_test
+    baseline = pd.DataFrame({"gnpa_ratio": [2.5, 8.0, 15.0]}, index=["BankA", "BankB", "BankC"])
+    
+    # Severe shock
+    res = run_logit_stress_test(baseline, gdp_shock=-10.0, roa_shock=-1.0)
+    assert (res["stressed_gnpa"] > 0).all()
+    assert (res["stressed_gnpa"] < 100).all()
+    # Stress must increase GNPA for adverse shock
+    assert (res["stressed_gnpa"] > baseline["gnpa_ratio"]).all()
+
+
+def test_simulate_bank_capital_depletion():
+    from npa_ews.stress import simulate_bank_capital_depletion
+    banks = pd.DataFrame({
+        "bank_clean": ["Bank1", "Bank2"],
+        "gnpa_ratio": [3.0, 7.5],
+        "gross_adv_cr": [100000.0, 50000.0],
+        "crar": [14.5, 10.2],
+        "pcr": [75.0, 60.0],
+    }).set_index("bank_clean")
+
+    depleted = simulate_bank_capital_depletion(banks, gnpa_increase_pct=3.0)
+    assert (depleted["stressed_crar"] < banks["crar"]).all()
+    assert "crar_breach_9pct" in depleted.columns
+
