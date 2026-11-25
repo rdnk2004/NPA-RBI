@@ -265,7 +265,10 @@ def build_bank_level_panel(
             continue
             
         b_upper = bank_raw.upper()
-        if b_upper in ["STATE BANK OF INDIA AND ITS ASSOCIATES", "NATIONALISED BANKS", "PUBLIC SECTOR BANKS"]:
+        if b_upper == "STATE BANK OF INDIA AND ITS ASSOCIATES":
+            # Subtotal row; Nationalised Banks (also PSB) appear immediately below
+            continue
+        elif b_upper in ["NATIONALISED BANKS", "PUBLIC SECTOR BANKS"]:
             current_section = "Private"  # Next section is Private
             continue
         elif b_upper == "PRIVATE SECTOR BANKS":
