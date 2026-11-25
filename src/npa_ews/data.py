@@ -81,6 +81,60 @@ def load_macro_annual(path: Path = config.MACRO_ANNUAL_CSV) -> pd.DataFrame:
     return pd.read_csv(path).sort_values("year").reset_index(drop=True)
 
 
+def load_bank_level_panel(
+    path: Path = config.BANK_LEVEL_PANEL_CSV,
+    *,
+    max_year: int = config.MAX_ACTUAL_YEAR,
+    validate: bool = True,
+) -> pd.DataFrame:
+    """Load the longitudinal bank-level panel dataset (40+ individual banks x 2005-2025)."""
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Bank-level panel not found at {path}. Run data_builder to generate it."
+        )
+
+    df = pd.read_csv(path)
+
+    if validate:
+        _validate_bank_level_schema(df, path)
+
+    df = df[df["year"] <= max_year].copy()
+    df = df.sort_values(["bank_clean", "year"]).reset_index(drop=True)
+
+    logger.info(
+        "Loaded bank-level panel: %d rows, %d banks, years %d-%d",
+        len(df),
+        df["bank_clean"].nunique(),
+        df["year"].min(),
+        df["year"].max(),
+    )
+    return df
+
+
+def get_bank_level_model_ready(
+    panel: pd.DataFrame,
+    features: list[str] | None = None,
+    target: str | None = None,
+) -> pd.DataFrame:
+    """Return clean bank-level frame with no missing values in specified features and target."""
+    feats = features or config.BANK_LEVEL_FEATURES
+    tgt = target or config.TARGET
+    clean = panel.dropna(subset=feats + [tgt]).copy()
+    return clean.sort_values(["bank_clean", "year"]).reset_index(drop=True)
+
+
+def _validate_bank_level_schema(df: pd.DataFrame, source: Path) -> None:
+    required = {"year", "bank_clean", "bank_group", "gnpa_ratio", "gross_adv_cr", config.TARGET}
+    missing = required - set(df.columns)
+    if missing:
+        raise SchemaError(
+            f"{source.name} is missing required bank-level columns: {sorted(missing)}"
+        )
+    if df["gnpa_ratio"].dropna().lt(0).any():
+        raise SchemaError(f"{source.name} contains negative gnpa_ratio values.")
+
+
+
 def get_model_ready_frame(panel: pd.DataFrame) -> pd.DataFrame:
     """Drop rows with any missing feature or target -- the exact frame
     every model in this repo trains on. Centralizing this means the

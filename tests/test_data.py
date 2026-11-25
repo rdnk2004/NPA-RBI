@@ -105,3 +105,17 @@ def test_annotate_reliability_handles_group_with_no_data():
 
     annotated = annotate_reliability(sample, reliability)
     assert annotated.loc["SFB", "data_confidence"] == "no data"
+
+
+def test_load_bank_level_panel_and_clean_frame():
+    from npa_ews.data import load_bank_level_panel, get_bank_level_model_ready
+
+    df = load_bank_level_panel()
+    assert len(df) >= 500
+    assert "bank_clean" in df.columns
+    assert "cd_ratio" in df.columns
+
+    clean = get_bank_level_model_ready(df)
+    assert len(clean) >= 300
+    assert clean["gnpa_next1yr"].isna().sum() == 0
+

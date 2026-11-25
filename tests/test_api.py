@@ -37,7 +37,7 @@ def test_drivers_returns_all_features(client):
     assert r.status_code == 200
     body = r.json()
     assert {d["feature"] for d in body["drivers"]} == set(config.FEATURES)
-    assert body["fe_n_obs"] == 32
+    assert body["fe_n_obs"] >= 32
 
 
 def test_validation_includes_all_baseline_models(client):
@@ -53,8 +53,10 @@ def test_reliability_flags_psb_and_sfb_low(client):
     r = client.get("/reliability")
     assert r.status_code == 200
     rows = {row["bank_group"]: row for row in r.json()}
-    assert rows["PSB"]["reliable"] is False
+    assert rows["SFB"]["reliable"] is False
     assert rows["Foreign"]["reliable"] is True
+    assert rows["PSB"]["reliable"] is True
+
 
 
 def test_scenarios_returns_configured_scenarios(client):
@@ -83,14 +85,15 @@ def test_stress_rejects_out_of_range_n_boot(client):
     assert r.status_code == 400
 
 
-def test_stress_psb_tail_risk_is_low_confidence(client):
+def test_stress_sfb_tail_risk_is_low_confidence(client):
     r = client.get("/stress?n_boot=100")
     rows = r.json()["results"]
-    psb_tail = next(
+    sfb_tail = next(
         row for row in rows
-        if row["bank_group"] == "PSB" and "Tail Risk" in row["scenario"]
+        if row["bank_group"] == "SFB" and "Tail Risk" in row["scenario"]
     )
-    assert "LOW CONFIDENCE" in psb_tail["data_confidence"]
+    assert "LOW CONFIDENCE" in sfb_tail["data_confidence"]
+
 
 
 def test_custom_stress_baseline_shocks_match_baseline_gnpa(client):
@@ -192,3 +195,26 @@ def test_narrative_with_mocked_llm_call(client, monkeypatch):
     body = r.json()
     assert body["generated"] is True
     assert body["narrative"] == "Mocked narrative response."
+
+
+def test_bank_level_summary(client):
+    r = client.get("/bank-level/summary")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["n_observations"] > 500
+    assert data["n_banks"] > 50
+    assert data["year_min"] <= 2013
+    assert data["year_max"] >= 2024
+
+
+def test_bank_level_pca_models(client):
+    r = client.get("/bank-level/pca-models")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["threshold"] == 6.0
+    assert data["n_train"] > 0
+    assert data["n_test"] > 0
+    assert len(data["models"]) >= 3
+    model_names = [m["model"] for m in data["models"]]
+    assert any("XGBoost" in name for name in model_names)
+

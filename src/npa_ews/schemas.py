@@ -114,3 +114,33 @@ class NarrativeResponse(BaseModel):
     generated: bool = Field(..., description="False if ANTHROPIC_API_KEY is not configured")
     model: str | None = None
     based_on: StressRow
+
+
+class BankLevelSummaryResponse(BaseModel):
+    n_observations: int
+    n_banks: int
+    year_min: int
+    year_max: int
+    mean_gnpa: float
+    mean_crar: float
+    mean_roa: float
+
+
+class PcaModelMetrics(BaseModel):
+    model: str
+    roc_auc: float
+    accuracy: float
+    precision: float
+    recall: float
+    f1: float
+
+
+class BankLevelPcaResponse(BaseModel):
+    threshold: float
+    train_years: str
+    test_years: str
+    n_train: int
+    n_test: int
+    models: list[PcaModelMetrics]
+    note: str
+

@@ -30,6 +30,8 @@ from fastapi import FastAPI, HTTPException
 from npa_ews import __version__, config, data, narrative, stress, validation
 from npa_ews.models import FixedEffectsRegressor, GnpaXGBModel
 from npa_ews.schemas import (
+    BankLevelPcaResponse,
+    BankLevelSummaryResponse,
     BaselineModelResult,
     CustomStressRequest,
     CustomStressResponse,
@@ -37,6 +39,7 @@ from npa_ews.schemas import (
     DriversResponse,
     NarrativeRequest,
     NarrativeResponse,
+    PcaModelMetrics,
     ReliabilityRow,
     ScenarioInfo,
     StressResponse,
@@ -57,6 +60,8 @@ class AppState:
     baseline: pd.DataFrame
     validation_result: validation.WalkForwardResult
     baseline_comparison: pd.DataFrame
+    bank_panel: pd.DataFrame
+    bank_val: dict
 
 
 state: AppState | None = None
@@ -82,6 +87,10 @@ async def lifespan(app: FastAPI):
     validation_result = validation.walk_forward_cv(ml_df)
     baseline_comparison = validation.compare_baselines(ml_df)
 
+    bank_panel = data.load_bank_level_panel()
+    bank_clean = data.get_bank_level_model_ready(bank_panel)
+    bank_val = validation.validate_bank_level_models(bank_clean)
+
     state = AppState(
         panel=panel,
         ml_df=ml_df,
@@ -91,6 +100,8 @@ async def lifespan(app: FastAPI):
         baseline=baseline_df,
         validation_result=validation_result,
         baseline_comparison=baseline_comparison,
+        bank_panel=bank_panel,
+        bank_val=bank_val,
     )
     logger.info("Startup complete: FE R^2=%.3f, %d CV folds.", fe.result.r_squared, len(validation_result.folds))
     yield
@@ -125,6 +136,7 @@ def root() -> dict:
         "endpoints": [
             "/health", "/drivers", "/validation", "/reliability",
             "/scenarios", "/stress", "/stress/custom", "/narrative",
+            "/bank-level/summary", "/bank-level/pca-models",
         ],
     }
 
@@ -355,3 +367,51 @@ def post_narrative(req: NarrativeRequest) -> NarrativeResponse:
     return NarrativeResponse(
         narrative=result.narrative, generated=result.generated, model=result.model, based_on=based_on
     )
+
+
+@app.get("/bank-level/summary", response_model=BankLevelSummaryResponse, tags=["bank-level"])
+def get_bank_level_summary() -> BankLevelSummaryResponse:
+    """Summary statistics for the reconstructed longitudinal bank-level panel."""
+    s = _get_state()
+    bp = s.bank_panel
+    return BankLevelSummaryResponse(
+        n_observations=len(bp),
+        n_banks=int(bp["bank"].nunique()),
+        year_min=int(bp["year"].min()),
+        year_max=int(bp["year"].max()),
+        mean_gnpa=round(float(bp["gnpa_ratio"].mean()), 2),
+        mean_crar=round(float(bp["crar"].mean()), 2),
+        mean_roa=round(float(bp["roa"].mean()), 2),
+    )
+
+
+@app.get("/bank-level/pca-models", response_model=BankLevelPcaResponse, tags=["bank-level"])
+def get_bank_level_pca_models() -> BankLevelPcaResponse:
+    """Out-of-time evaluation for Prompt Corrective Action (PCA) breach prediction."""
+    s = _get_state()
+    cls_df = s.bank_val["classification"]
+    models = [
+        PcaModelMetrics(
+            model=idx,
+            roc_auc=row["ROC_AUC"],
+            accuracy=row["Accuracy"],
+            precision=row["Precision"],
+            recall=row["Recall"],
+            f1=row["F1_Score"],
+        )
+        for idx, row in cls_df.iterrows()
+    ]
+    return BankLevelPcaResponse(
+        threshold=config.PCA_THRESHOLD_1,
+        train_years="<= 2021",
+        test_years=">= 2022",
+        n_train=s.bank_val["n_train"],
+        n_test=s.bank_val["n_test"],
+        models=models,
+        note=(
+            "Evaluated out-of-time on individual bank panel. Machine learning "
+            "(XGBoost/RF) captures non-linear threshold dynamics for PCA breaches "
+            "where linear models underperform."
+        ),
+    )
+

@@ -13,7 +13,16 @@ import numpy as np
 import pandas as pd
 import shap
 import xgboost as xgb
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    mean_absolute_error,
+    mean_squared_error,
+    precision_score,
+    r2_score,
+    recall_score,
+    roc_auc_score,
+)
 
 from npa_ews import config
 
@@ -113,3 +122,80 @@ class GnpaXGBModel:
         if self._explainer is None:
             self._explainer = shap.TreeExplainer(self.model)
         return self._explainer
+
+
+class PcaBreachClassifier:
+    """XGBoost Classifier for Prompt Corrective Action (PCA) breach prediction (GNPA >= 6.0%)."""
+
+    def __init__(
+        self,
+        features: list[str] | None = None,
+        target: str = "pca_breach_next1yr",
+        **xgb_kwargs,
+    ):
+        self.features = features or config.BANK_LEVEL_FEATURES
+        self.target = target
+        params = dict(
+            n_estimators=100,
+            max_depth=3,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_alpha=0.5,
+            reg_lambda=1.0,
+            random_state=config.RANDOM_SEED,
+            eval_metric="logloss",
+            verbosity=0,
+        )
+        params.update(xgb_kwargs)
+        self.model = xgb.XGBClassifier(**params)
+        self._explainer: shap.TreeExplainer | None = None
+        self._fitted = False
+
+    def fit(self, train_df: pd.DataFrame, eval_df: pd.DataFrame | None = None) -> "PcaBreachClassifier":
+        X_train = train_df[self.features]
+        y_train = train_df[self.target].astype(int)
+        eval_set = None
+        if eval_df is not None:
+            eval_set = [(eval_df[self.features], eval_df[self.target].astype(int))]
+        self.model.fit(X_train, y_train, eval_set=eval_set, verbose=False)
+        self._fitted = True
+        return self
+
+    def predict(self, df: pd.DataFrame) -> np.ndarray:
+        self._check_fitted()
+        return self.model.predict(df[self.features])
+
+    def predict_proba(self, df: pd.DataFrame) -> np.ndarray:
+        self._check_fitted()
+        return self.model.predict_proba(df[self.features])[:, 1]
+
+    def evaluate(self, test_df: pd.DataFrame) -> dict[str, float]:
+        self._check_fitted()
+        y_true = test_df[self.target].astype(int)
+        probs = self.predict_proba(test_df)
+        preds = (probs >= 0.5).astype(int)
+        return {
+            "roc_auc": float(roc_auc_score(y_true, probs)),
+            "accuracy": float(accuracy_score(y_true, preds)),
+            "f1": float(f1_score(y_true, preds, zero_division=0)),
+            "precision": float(precision_score(y_true, preds, zero_division=0)),
+            "recall": float(recall_score(y_true, preds, zero_division=0)),
+        }
+
+    def shap_values(self, df: pd.DataFrame) -> np.ndarray:
+        self._check_fitted()
+        if self._explainer is None:
+            self._explainer = shap.TreeExplainer(self.model)
+        return self._explainer.shap_values(df[self.features])
+
+    def global_importance(self, df: pd.DataFrame) -> pd.Series:
+        sv = self.shap_values(df)
+        return pd.Series(
+            np.abs(sv).mean(axis=0), index=self.features
+        ).sort_values(ascending=True)
+
+    def _check_fitted(self) -> None:
+        if not self._fitted:
+            raise RuntimeError("Call .fit(train_df) before using this classifier.")
+

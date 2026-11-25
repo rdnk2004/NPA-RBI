@@ -186,6 +186,114 @@ def compare_baselines(
     return summary.reindex(order)
 
 
+def validate_bank_level_models(
+    bank_df: pd.DataFrame,
+    features: list[str] | None = None,
+    split_year: int = 2021,
+) -> dict[str, pd.DataFrame]:
+    """Evaluate continuous and PCA-breach classification models on bank-level panel.
+
+    Splits temporally at split_year (e.g. Train <= 2021, Test >= 2022) to avoid lookahead.
+    """
+    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import (
+        accuracy_score,
+        f1_score,
+        mean_absolute_error,
+        mean_squared_error,
+        precision_score,
+        r2_score,
+        recall_score,
+        roc_auc_score,
+    )
+    from npa_ews.models.xgb_model import GnpaXGBModel, PcaBreachClassifier
+
+    feats = features or config.BANK_LEVEL_FEATURES
+    clean = bank_df.dropna(subset=feats + ["gnpa_next1yr", "pca_breach_next1yr"]).copy()
+
+    train = clean[clean["year"] <= split_year]
+    test = clean[clean["year"] > split_year]
+
+    if train.empty or test.empty:
+        raise ValueError(f"Insufficient train ({len(train)}) or test ({len(test)}) observations.")
+
+    # 1. Regression Comparison
+    y_test_reg = test["gnpa_next1yr"].to_numpy()
+    naive_preds = test["gnpa_ratio"].to_numpy()
+
+    xgb_reg = GnpaXGBModel(features=feats, target="gnpa_next1yr").fit(train, test)
+    xgb_preds = xgb_reg.predict(test)
+
+    rf_reg = RandomForestRegressor(n_estimators=100, max_depth=5, random_state=config.RANDOM_SEED)
+    rf_reg.fit(train[feats], train["gnpa_next1yr"])
+    rf_preds = rf_reg.predict(test[feats])
+
+    reg_summary = pd.DataFrame([
+        {
+            "Model": "Naive (persistence: gnpa_t)",
+            "MAE": round(mean_absolute_error(y_test_reg, naive_preds), 3),
+            "RMSE": round(float(np.sqrt(mean_squared_error(y_test_reg, naive_preds))), 3),
+            "R2": round(r2_score(y_test_reg, naive_preds), 3),
+        },
+        {
+            "Model": "Random Forest Regressor",
+            "MAE": round(mean_absolute_error(y_test_reg, rf_preds), 3),
+            "RMSE": round(float(np.sqrt(mean_squared_error(y_test_reg, rf_preds))), 3),
+            "R2": round(r2_score(y_test_reg, rf_preds), 3),
+        },
+        {
+            "Model": "XGBoost Regressor",
+            "MAE": round(mean_absolute_error(y_test_reg, xgb_preds), 3),
+            "RMSE": round(float(np.sqrt(mean_squared_error(y_test_reg, xgb_preds))), 3),
+            "R2": round(r2_score(y_test_reg, xgb_preds), 3),
+        },
+    ]).set_index("Model")
+
+    # 2. PCA Breach Classification Comparison
+    y_test_cls = test["pca_breach_next1yr"].astype(int).to_numpy()
+
+    # Logit baseline
+    logit = LogisticRegression(max_iter=1000, random_state=config.RANDOM_SEED)
+    logit.fit(train[feats], train["pca_breach_next1yr"].astype(int))
+    logit_probs = logit.predict_proba(test[feats])[:, 1]
+    logit_preds = (logit_probs >= 0.5).astype(int)
+
+    # Random Forest
+    rf_cls = RandomForestClassifier(n_estimators=100, max_depth=4, random_state=config.RANDOM_SEED)
+    rf_cls.fit(train[feats], train["pca_breach_next1yr"].astype(int))
+    rf_probs = rf_cls.predict_proba(test[feats])[:, 1]
+    rf_preds = (rf_probs >= 0.5).astype(int)
+
+    # XGBoost
+    xgb_cls = PcaBreachClassifier(features=feats, target="pca_breach_next1yr").fit(train)
+    xgb_probs = xgb_cls.predict_proba(test)
+    xgb_preds_cls = (xgb_probs >= 0.5).astype(int)
+
+    def calc_cls_metrics(y_true, probs, preds):
+        return {
+            "ROC_AUC": round(float(roc_auc_score(y_true, probs)), 3),
+            "Accuracy": round(float(accuracy_score(y_true, preds)), 3),
+            "Precision": round(float(precision_score(y_true, preds, zero_division=0)), 3),
+            "Recall": round(float(recall_score(y_true, preds, zero_division=0)), 3),
+            "F1_Score": round(float(f1_score(y_true, preds, zero_division=0)), 3),
+        }
+
+    cls_summary = pd.DataFrame([
+        {"Model": "Logistic Regression (Logit)", **calc_cls_metrics(y_test_cls, logit_probs, logit_preds)},
+        {"Model": "Random Forest Classifier", **calc_cls_metrics(y_test_cls, rf_probs, rf_preds)},
+        {"Model": "XGBoost Classifier", **calc_cls_metrics(y_test_cls, xgb_probs, xgb_preds_cls)},
+    ]).set_index("Model")
+
+    return {
+        "regression": reg_summary,
+        "classification": cls_summary,
+        "n_train": len(train),
+        "n_test": len(test),
+    }
+
+
+
 def walk_forward_cv(
     ml_df: pd.DataFrame,
     features: list[str] | None = None,
